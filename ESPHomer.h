@@ -3,7 +3,7 @@
 
 #include "Arduino.h"
 
-#define ESP_HOMER_VERSION "0.9"
+#define ESP_HOMER_VERSION "0.10"
 
 #include <ESP8266WiFi.h>
 
@@ -87,6 +87,10 @@ struct eeprom_data_t {
 #define VCC_ADJ 1024
 #endif
 
+#ifndef HOMER_STATUS_PERIOD_MS
+#define HOMER_STATUS_PERIOD_MS 300000
+#endif
+
 #ifndef HOMER_NTP_SERVER
 #define HOMER_NTP_SERVER "192.168.100.254"
 #endif
@@ -139,6 +143,7 @@ class ESPHomer
     void setOTA(const char *pass);
     void setMQTT(const char *host, uint16_t port);
     void setNTP(const char *host);
+    void setStatusPeriod(uint32_t ms);
     void pinLed(int8_t pin, uint8_t lvlLedOn);
     uint8_t publish(uint8_t topic_idx, const char *msg);
     uint8_t addTopic(const char* name);
@@ -174,6 +179,7 @@ class ESPHomer
     uint8_t topic_count;
     int8_t _pinLed = -1;
     int8_t _lvlLedOn = HIGH;
+    uint32_t _statusPeriod = HOMER_STATUS_PERIOD_MS;
     boolean setEEPROM = false;
     WiFiUDP ntpUDP;
     WiFiClient espClient;

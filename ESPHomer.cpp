@@ -169,7 +169,6 @@ switch ( which )
     }
 }
 
-
 ESPHomer::ESPHomer(const char *espname)
   : timeClient(ntpUDP, HOMER_NTP_SERVER, 0, 3600000),
   // You can specify the time server pool and the offset (in seconds, can be
@@ -224,6 +223,10 @@ void ESPHomer::setMQTT(const char *host, uint16_t port) {
 
 void ESPHomer::setNTP(const char *host) {
   _ntp_server = (char *)host;
+}
+
+void ESPHomer::setStatusPeriod(uint32_t ms) {
+  _statusPeriod = ms;
 }
 
 void ESPHomer::pinLed(int8_t pin, uint8_t lvlLedOn) {
@@ -428,7 +431,9 @@ void ESPHomer::setup_wifi() {
     Serial.printf("[%lu] [WiFi] Got IP: %s, gw: %s, host=%s in %lums\r\n", now, event.ip.toString().c_str(), event.gw.toString().c_str(), WiFi.hostname().c_str(), (now - timeStartWifiConnection));
     #endif
     //s_winsResponder.begin(WiFi.hostname().c_str(), event.ip);
-    MDNS.begin(WiFi.hostname().c_str(), event.ip);
+    if (MDNS.begin(WiFi.hostname().c_str(), event.ip)) {
+      MDNS.addService("homer", "tcp", 28066);
+    }
     #ifdef SERIAL_DEBUG
     Serial.print("[");
     Serial.print(millis());
@@ -445,6 +450,34 @@ void ESPHomer::setup_wifi() {
   //WiFi.onSoftAPModeStationConnected(onSoftAPModeStationConnected);
   //WiFi.onSoftAPModeStationDisconnected(onSoftAPModeStationDisconnected);
   //WiFi.onSoftAPModeProbeRequestReceived(onSoftAPModeProbeRequestReceived);
+  /*
+void WiFiEvent(WiFiEvent_t event) {
+    unsigned long now = millis();
+    #ifdef SERIAL_DEBUG
+    Serial.printf("[%d] [WiFi-event] event: %d\r\n", now, event);
+    #endif
+    
+    case WIFI_EVENT_SOFTAPMODE_STACONNECTED:
+      #ifdef SERIAL_DEBUG
+      Serial.printf("[AP] %d, Client Connected\r\n", event);
+      #endif
+    break;
+    
+    case WIFI_EVENT_SOFTAPMODE_STADISCONNECTED:
+      #ifdef SERIAL_DEBUG
+      Serial.printf("[AP] %d, Client Disconnected\r\n", event);
+      #endif
+    break;
+    
+    case WIFI_EVENT_SOFTAPMODE_PROBEREQRECVED:
+      #ifdef SERIAL_DEBUG
+      Serial.printf("[AP] %d, Probe Request Recieved\r\n", event);
+      #endif
+    break;
+  }
+}
+  */
+
 
   if (WiFi.status() != WL_CONNECTED) {
     timeStartWifiConnection = millis();
@@ -793,7 +826,7 @@ void ESPHomer::serialln(const char* msg) {
 
 void ESPHomer::StatusSend() {
   long now = millis();
-  if (now - last_stat_stamp > 600000) {
+  if (now - last_stat_stamp > _statusPeriod) {
       last_stat_stamp=now;
       unsigned long t = timeClient.getEpochTime();
       long rssi = WiFi.RSSI();
