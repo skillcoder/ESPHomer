@@ -3,7 +3,7 @@
 
 #include "Arduino.h"
 
-#define ESP_HOMER_VERSION "0.10"
+#define ESP_HOMER_VERSION "0.11"
 
 #include <ESP8266WiFi.h>
 
@@ -16,6 +16,8 @@
 
 #include <WiFiUdp.h>
 //#include <WINSResponder.h>
+// ATTENTION!!! Need NTPClient version ^3.2.0 or from https://github.com/arduino-libraries/NTPClient.git
+// Cuz using setPoolServerName
 #include <NTPClient.h>
 // HT7333 need 2 capasitor 10uF, but on vcc need min 1000uF 6.3v for small spike
 
@@ -92,11 +94,11 @@ struct eeprom_data_t {
 #endif
 
 #ifndef HOMER_NTP_SERVER
-#define HOMER_NTP_SERVER "192.168.100.254"
+#define HOMER_NTP_SERVER "192.168.1.2"
 #endif
 
 #ifndef HOMER_MQTT_SERVER
-#define HOMER_MQTT_SERVER "192.168.100.254"
+#define HOMER_MQTT_SERVER "192.168.1.2"
 #endif
 
 #ifndef HOMER_MQTT_PORT
@@ -135,9 +137,12 @@ class ESPHomer
 
     void writeEEPROM(boolean isCommit);
     boolean reconnect();
-    String getMAC();
-    String showMAC(const uint8_t mac[WL_MAC_ADDR_LENGTH]);
+    //String getMAC();
+    char*  getMAC();
+    //String showMAC(const uint8_t mac[WL_MAC_ADDR_LENGTH]);
+    char* initMAC(const uint8_t mac[WL_MAC_ADDR_LENGTH]);
     void serialln(const char* msg);
+    void serialln(const __FlashStringHelper* msg);
     void setAppVer(const char* ver);
     void setVccAdj(int16_t adj);
     void setOTA(const char *pass);
@@ -151,6 +156,7 @@ class ESPHomer
     ESPHomer& setCallback(HOMER_CALLBACK_SIGNATURE);
     ESPHomer& onCommand(HOMER_COMMAND_SIGNATURE);
   private:
+    //static const char init_format[] PROGMEM = "";
     const char* appver;
     int16_t _VCC_ADJ = VCC_ADJ;
     unsigned long initTime = 0;
@@ -172,7 +178,7 @@ class ESPHomer
     char* _topics[HOMER_MQTT_MAX_TOPIC_COUNT];
     char* _ssid;
     char* _pass;
-    const char* _ota_pass = "HOMEROTAPASS";
+    const char* _ota_pass = "HOMERotaPASS";
     const char* _mqtt_server = HOMER_MQTT_SERVER;
     int16_t _mqtt_port = HOMER_MQTT_PORT;
     const char* _ntp_server = HOMER_NTP_SERVER;
@@ -185,6 +191,7 @@ class ESPHomer
     WiFiClient espClient;
     //WINSResponder s_winsResponder;
     eeprom_data_t eeprom_data;
+    char __mac[WL_MAC_ADDR_LENGTH*3];
 
     WiFiEventHandler stationModeConnected, stationModeDisconnected, stationModeAuthModeChanged, stationModeGotIP, stationModeDHCPTimeout;
 

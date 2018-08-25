@@ -410,7 +410,7 @@ void ESPHomer::setup_wifi() {
 	  isTimeouted = false;
 	  #ifdef SERIAL_DEBUG
 	  unsigned long now = millis();
-	  Serial.printf("[%lu] [WiFi] Connected. SSID=%s BSSID=%s ch=%u\r\n", now, event.ssid.c_str(), showMAC(event.bssid).c_str(), event.channel);
+	  Serial.printf("[%lu] [WiFi] Connected. SSID=%s BSSID=%s ch=%u\r\n", now, event.ssid.c_str(), initMAC(event.bssid), event.channel);
 	  #endif
   });
   stationModeDisconnected = WiFi.onStationModeDisconnected([this](const WiFiEventStationModeDisconnected& event) {
@@ -708,7 +708,7 @@ boolean ESPHomer::reconnect() {
   #ifdef SERIAL_DEBUG
   Serial.print("[");
   Serial.print(millis());
-  Serial.println("] Attempting MQTT connection... ");
+  Serial.println(F("] Attempting MQTT connection... "));
   time1 = millis();
   #endif
   if (client.connect(_espname)) {
@@ -724,10 +724,13 @@ boolean ESPHomer::reconnect() {
     unsigned long t = timeClient.getEpochTime();
     String name = WiFi.SSID();
     long rssi = WiFi.RSSI();
-    unsigned long freemem = ESP.getFreeHeap();
+    uint32_t freemem = ESP.getFreeHeap();
     float vcc = ((float)ESP.getVcc())/_VCC_ADJ;
     
-    String msg = "connected "+name+" ("+String(_espname)+") {"+getMAC()+"} ["+WiFi.localIP().toString()+"] h"+String(ESP_HOMER_VERSION)+" v"+appver+" #"+eeprom_data.updateTime+" TI:"+inited+" T:"+String(t)+" R:"+String(rssi)+" M:"+String(freemem)+" V:"+String(vcc);
+    //String msg = "connected "+name+" ("+String(_espname)+") {"+getMAC()+"} ["+WiFi.localIP().toString()+"] h"+String(ESP_HOMER_VERSION)+" v"+appver+" #"+eeprom_data.updateTime+" TI:"+inited+" T:"+String(t)+" R:"+String(rssi)+" M:"+String(freemem)+" V:"+String(vcc);
+    char msg[MQTT_MAX_PACKET_SIZE];
+    const char * init_format = PSTR(R"({"act":"connected","ap":"%s","name":"%s","mac":"%s","ip":"%s","rssi":%d,"vcc":%.2f,"h":"%s","v":"%s","upd":%u,"time":%u,"inited":%u,"free":%u})");
+    snprintf_P(msg, sizeof(msg), init_format, name.c_str(), _espname, getMAC(), WiFi.localIP().toString().c_str(), rssi, vcc, ESP_HOMER_VERSION, appver, eeprom_data.updateTime, t, inited, freemem);
     #ifdef SERIAL_DEBUG
     Serial.print("[");
     Serial.print(millis());
@@ -738,10 +741,10 @@ boolean ESPHomer::reconnect() {
     #endif
 
     if (!client.connected()) {
-      serialln("NOT CONNECTED !!!");
+      serialln(F("NOT CONNECTED !!!"));
     }
     
-    client.publish(_topic_init, msg.c_str()); // init
+    client.publish(_topic_init, msg); // init
     // ... and resubscribe
     client.subscribe(_topics[C_LED]); // 1 - led
     client.subscribe(_topics[C_CMD]); // 3 - cmd
@@ -750,7 +753,7 @@ boolean ESPHomer::reconnect() {
     Serial.print("[");
     Serial.print(millis());
     Serial.print("] ");
-    Serial.printf("mqtt.subscribe: %lu\r\n", time2);
+    Serial.printf_P(PSTR("mqtt.subscribe: %lu\r\n"), time2);
     if (_firstConnect) {
       _firstConnect = 0;
       Serial.print("[");
@@ -801,6 +804,13 @@ void ESPHomer::writeEEPROM(boolean isCommit) {
   }
 }
 
+char* ESPHomer::initMAC(const uint8_t mac[WL_MAC_ADDR_LENGTH]) {
+  snprintf(__mac, sizeof(__mac)
+        , "%02X:%02X:%02X:%02X:%02X:%02X"
+        , mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  return __mac;
+}
+/*
 String ESPHomer::showMAC(const uint8_t mac[WL_MAC_ADDR_LENGTH]) {
   String resukt = String(mac[WL_MAC_ADDR_LENGTH - 6], HEX) + ":" +
                String(mac[WL_MAC_ADDR_LENGTH - 5], HEX) + ":" +
@@ -817,8 +827,20 @@ String ESPHomer::getMAC() {
   WiFi.macAddress(mac);
   return showMAC(mac);
 }
+*/
+char* ESPHomer::getMAC() {
+  uint8_t mac[WL_MAC_ADDR_LENGTH];
+  WiFi.macAddress(mac);
+  return initMAC(mac);
+}
 
 void ESPHomer::serialln(const char* msg) {
+  #ifdef SERIAL_DEBUG
+  Serial.println(msg);
+  #endif
+}
+
+void ESPHomer::serialln(const __FlashStringHelper* msg) {
   #ifdef SERIAL_DEBUG
   Serial.println(msg);
   #endif
@@ -834,8 +856,11 @@ void ESPHomer::StatusSend() {
       unsigned long freemem = ESP.getFreeHeap();
       float vcc = ((float)ESP.getVcc())/_VCC_ADJ;
       if (client.connected()) {
-        String msg = "status t="+String(t)+" s="+name+" r="+String(rssi)+" m="+String(freemem)+" v="+String(vcc)+" u="+String(millis());
-        client.publish(_topics[C_STAT], msg.c_str()); // stat
+        //String msg = "status t="+String(t)+" s="+name+" r="+String(rssi)+" m="+String(freemem)+" v="+String(vcc)+" u="+String(millis());
+        char msg[MQTT_MAX_PACKET_SIZE];
+        const char * init_format = PSTR(R"({"act":"status","time":%u,"ap":"%s","rssi":%d,"vcc":%.2f,"free":%u,"uptime":%u})");
+        snprintf_P(msg, sizeof(msg), init_format, t, name.c_str(), rssi, vcc, freemem, millis());
+        client.publish(_topics[C_STAT], msg); // stat
         #ifdef SERIAL_DEBUG
         Serial.println(msg);
         #endif

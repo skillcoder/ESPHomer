@@ -1,0 +1,46 @@
+{
+  "name": "ESPHomer",
+  "description": "ESP8266 IoT node micro framework liblary for Arduino (using MQTT/mDNS/OTA)",
+  "keywords": "homer, esp, mqtt, iot, temperature, sensor",
+  "authors":
+  [
+    {
+      "name": "skillcoder",
+      "email": "mail@skillcoder.com",
+      "url": "http://skillcoder.com",
+      "maintainer": true
+    }
+  ],
+  "repository":
+  {
+    "type": "git",
+    "url": "https://github.com/skillcoder/ESPHomer.git"
+  },
+  "version": "0.11.0",
+  "license": "GPL-3.0",
+  "homepage": "https://github.com/skillcoder/ESPHomer",
+  "frameworks": "arduino",
+  "platforms": "espressif8266",
+  "dependencies":
+  [
+    {
+      "name": "PubSubClient",
+      "authors": "Nick O'Leary",
+      "frameworks": "arduino",
+      "version": "^2.6"
+    },
+    {
+      "name": "NTPClient",
+      "authors": "Fabrice Weinberg",
+      "frameworks": "arduino",
+      "platforms": "espressif",
+      "version": "^3.2.0"
+    },
+    {
+      "name": "CRC32",
+      "authors": "Christopher Baker",
+      "frameworks": "arduino",
+      "version": "^2.0.0"
+    }
+  ]
+}
