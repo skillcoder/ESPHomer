@@ -3,7 +3,7 @@
 
 #include "Arduino.h"
 
-#define ESP_HOMER_VERSION "0.12"
+#define ESP_HOMER_VERSION "0.14"
 
 #include <ESP8266WiFi.h>
 
@@ -69,9 +69,11 @@ struct eeprom_data_t {
 #include <functional>
 #define HOMER_CALLBACK_SIGNATURE std::function<void(char*, uint8_t*, unsigned int)> callback
 #define HOMER_COMMAND_SIGNATURE std::function<void(char*, char*)> commandHandler
+#define HOMER_SHUTDOWN_SIGNATURE std::function<void(uint8_t)> shutdownHandler
 #else
 #define HOMER_CALLBACK_SIGNATURE void (*callback)(char*, uint8_t*, unsigned int)
 #define HOMER_COMMAND_SIGNATURE void (*commandHandler)(char*, char*)
+#define HOMER_SHUTDOWN_SIGNATURE void (*shutdownHandler)(uint8_t)
 #endif
 
 #ifndef SERIAL_DEBUG
@@ -95,6 +97,10 @@ struct eeprom_data_t {
 #define HOMER_STATUS_PERIOD_MS 300000
 #endif
 
+#ifndef HOMER_EMERGENCY_OTA_MS
+#define HOMER_EMERGENCY_OTA_MS 6000
+#endif
+
 #ifndef HOMER_NTP_SERVER
 #define HOMER_NTP_SERVER "192.168.1.2"
 #endif
@@ -109,14 +115,15 @@ struct eeprom_data_t {
 
 // base_channel_e alreadu use some
 #ifndef HOMER_MQTT_MAX_TOPIC_COUNT 
-#define HOMER_MQTT_MAX_TOPIC_COUNT 10
+#define HOMER_MQTT_MAX_TOPIC_COUNT 20
 #endif
 
 #ifndef HOMER_MAX_CMD_SIZE 
 #define HOMER_MAX_CMD_SIZE 16
 #endif
 
-enum base_channel_e {C_STAT, C_LED, C_DATA, C_CMD, C_SCAN};
+enum base_channel_e {C_STAT, C_LED, C_DATA, C_CMD, C_SCAN, C_CONF, C_TOPICS};
+enum shutdown_reason_e {SHUTDOWN_REASON_UNKNOWN, SHUTDOWN_REASON_UPDATE, SHUTDOWN_REASON_TIMER_OVERFLOW, SHUTDOWN_REASON_CONN_FAIL};
 
 class ESPHomer
 {
@@ -134,6 +141,8 @@ class ESPHomer
     char* getSSID();
     char* getPASS();
 
+    void setupSerial();
+    void setupSerial(int32_t speed);
     void setup();
     uint8_t loop(boolean isCanReboot);
 
@@ -157,10 +166,15 @@ class ESPHomer
     void setSSID(const char *ssid, const char *pass);
     ESPHomer& setCallback(HOMER_CALLBACK_SIGNATURE);
     ESPHomer& onCommand(HOMER_COMMAND_SIGNATURE);
+    ESPHomer& onShutdown(HOMER_SHUTDOWN_SIGNATURE);
   private:
     //static const char init_format[] PROGMEM = "";
     const char* appver;
     int16_t _VCC_ADJ = VCC_ADJ;
+    const char* _espname;
+    const char* _topic_init = "/esp/init";
+    const char* _topic_prefix = "/esp/";
+
     unsigned long initTime = 0;
     unsigned long time1, time2;
     unsigned long last_stat_stamp = 0;
@@ -171,13 +185,11 @@ class ESPHomer
     boolean isTimeouted = false;
     uint8_t loopState = 0;
     uint8_t _firstConnect = 1;
+    uint8_t _reset_reason = 0;
 
-    const char* _espname;
-  	const char* _topic_init = "/esp/init";
-    const char* _topic_prefix = "/esp/";
-    
-    const char* base_topics[5]={"stat", "led", "data", "cmd", "scan"};
+    const char* base_topics[7]={"stat", "led", "data", "cmd", "scan", "conf", "topics"};
     char* _topics[HOMER_MQTT_MAX_TOPIC_COUNT];
+
     char* _ssid;
     char* _pass;
     const char* _ota_pass = "HOMERotaPASS";
@@ -188,6 +200,7 @@ class ESPHomer
     int8_t _pinLed = -1;
     int8_t _lvlLedOn = HIGH;
     uint32_t _statusPeriod = HOMER_STATUS_PERIOD_MS;
+    uint32_t _serial_speed = 0;
     boolean setEEPROM = false;
     WiFiUDP ntpUDP;
     WiFiClient espClient;
@@ -198,19 +211,23 @@ class ESPHomer
     WiFiEventHandler stationModeConnected, stationModeDisconnected, stationModeAuthModeChanged, stationModeGotIP, stationModeDHCPTimeout;
 
     //void setup_Serial();
+    void setup_Reset();
     void setup_wifi();
     void setup_OTA();
+    void emergency_OTA();
     void setup_NTP();
     void setup_MQTT();
     void setup_EEPROM();
 
     void StatusSend();
+    void StatusSend(boolean isForceSend);
     //String connectionStatus(int which);
     //void WiFiEvent(WiFiEvent_t event);
     
     void _callback(char* topic, byte* payload, unsigned int length);
     HOMER_CALLBACK_SIGNATURE;
     HOMER_COMMAND_SIGNATURE;
+    HOMER_SHUTDOWN_SIGNATURE;
 };
 
 #endif

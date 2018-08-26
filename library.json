@@ -16,7 +16,7 @@
     "type": "git",
     "url": "https://github.com/skillcoder/ESPHomer.git"
   },
-  "version": "0.12.0",
+  "version": "0.14.0",
   "license": "GPL-3.0",
   "homepage": "https://github.com/skillcoder/ESPHomer",
   "frameworks": "arduino",

@@ -5,6 +5,9 @@
 //#include <HashMap.h> // for Associative Arrays (__topics)
 
 #include "Arduino.h"
+extern "C" {
+#include <user_interface.h>
+}
 #include "ESPHomer.h"
 
 #include <ESP8266WiFi.h>
@@ -22,6 +25,35 @@
 
 #include <EEPROM.h>
 #include <CRC32.h>
+
+String resetReason(uint8_t which) {
+  switch (which) {
+    case REASON_DEFAULT_RST:
+      return F("normal startup by power on");
+      break;
+    case REASON_WDT_RST:
+      return F("hardware watch dog reset");
+      break; 
+    case REASON_EXCEPTION_RST:
+      return F("exception reset, GPIO status won't change");
+      break; 
+    case REASON_SOFT_WDT_RST:
+      return F("software watch dog reset, GPIO status won't change");
+      break; 
+    case REASON_SOFT_RESTART:
+      return F("software restart ,system_restart , GPIO status won't change");
+      break; 
+    case REASON_DEEP_SLEEP_AWAKE:
+      return F("wake up from deep-sleep");
+      break; 
+    case REASON_EXT_SYS_RST:
+      return F("external system reset");
+      break; 
+    default:
+      return F("Unknown");
+      break;
+  }
+}
 
 String connectionStatus(int which) {
   switch ( which )
@@ -183,6 +215,7 @@ ESPHomer::ESPHomer(const char *espname)
 
   setCallback(NULL);
   onCommand(NULL);
+  onShutdown(NULL);
 }
 
 ESPHomer::~ESPHomer() {
@@ -255,6 +288,42 @@ uint8_t ESPHomer::publish(uint8_t topic_idx, const char* msg) {
   return client.publish(_topics[topic_idx], msg);
 }
 
+void ESPHomer::setupSerial() {
+  setupSerial(115200);
+}
+
+void ESPHomer::setupSerial(int32_t speed) {
+  #ifdef SERIAL_DEBUG
+  uint32_t time1 = millis();
+
+  _serial_speed = speed;
+  Serial.begin(_serial_speed);
+  
+  Serial.setTimeout(2000);
+  // Wait for serial to initialize.
+  while(!Serial) { }
+  uint32_t time2 = millis() - time1;
+  Serial.println("");
+  Serial.print("Serial: ");
+  Serial.print(time2);
+  Serial.println("ms");
+  #endif
+}
+
+void ESPHomer::setup_Reset() {
+  rst_info *resetInfo;
+  resetInfo = ESP.getResetInfoPtr();
+  _reset_reason = resetInfo->reason;
+  #ifdef SERIAL_DEBUG
+  Serial.print("[");
+  Serial.print(millis());
+  Serial.print("] Reset reason[");
+  Serial.print(_reset_reason);
+  Serial.print("]: ");
+  Serial.println(resetReason(_reset_reason));
+  #endif
+}
+
 void ESPHomer::setup() {
   initTime = millis();
   #ifdef SERIAL_DEBUG
@@ -267,11 +336,15 @@ void ESPHomer::setup() {
   
   //setup_Serial();
 
+  setup_Reset();
+
   setup_EEPROM();
 
   setup_wifi();
 
   setup_OTA();
+
+  emergency_OTA();
 
   setup_NTP();
 
@@ -556,6 +629,12 @@ void ESPHomer::setup_OTA() {
     //EPPROM set
     eeprom_data.updateTime = timeClient.getEpochTime();
     writeEEPROM(true);
+
+    if (shutdownHandler) {
+        shutdownHandler(SHUTDOWN_REASON_UPDATE);
+        yield();
+        delay(200);
+    } 
     // Dont delete this, this need for end all network job before reboot
     delay(500);
   });
@@ -587,6 +666,43 @@ void ESPHomer::setup_OTA() {
   Serial.print(time2);
   Serial.println("ms");
   #endif
+}
+
+void ESPHomer::emergency_OTA() {
+  time1 = millis();
+  if (HOMER_EMERGENCY_OTA_MS > 0 && (_reset_reason == REASON_EXCEPTION_RST)) {
+    #ifdef SERIAL_DEBUG
+    Serial.print("[");
+    Serial.print(millis());
+    Serial.println("] emergency_OTA start");
+    #endif
+    int32_t emerg_start = millis();
+    while (millis() - emerg_start < 5000) {
+      delay(10);
+      if (WiFi.status() == WL_CONNECTED) {
+        break;
+      }
+
+      yield();
+    }
+
+    emerg_start = millis();
+    while (millis() - emerg_start < HOMER_EMERGENCY_OTA_MS) {
+      yield();
+      if (WiFi.status() == WL_CONNECTED) {
+        ArduinoOTA.handle();
+      }
+    }
+
+    #ifdef SERIAL_DEBUG
+    time2 = millis() - time1;
+    Serial.print("[");
+    Serial.print(millis());
+    Serial.print("] emergency_OTA: ");
+    Serial.print(time2);
+    Serial.println("ms");
+    #endif
+  }
 }
 
 void ESPHomer::setup_NTP() {
@@ -621,10 +737,26 @@ void ESPHomer::setup_MQTT() {
     if (tl == 0) {
       break;
     }
-
+/*
+    #ifdef SERIAL_DEBUG
+    Serial.print(base_topics[i]);
+    #endif
+    */
     // если ещё не было замены
-    if (tl < pl || strncmp(_topic_prefix, _topics[i], pl)) {
+    if (_topics[i] == nullptr || strlen(_topics[i]) < pl || strncmp(_topic_prefix, _topics[i], pl)) {
       uint8_t memcount = sizeof(char) * (pl + nl + tl + 2);
+      /*
+      #ifdef SERIAL_DEBUG
+      Serial.print(" ");
+      Serial.print(pl);
+      Serial.print("+");
+      Serial.print(nl);
+      Serial.print("+");
+      Serial.print(tl);
+      Serial.print("+2 = ");
+      Serial.println(memcount);
+      #endif
+*/
       _topics[i] = (char *)malloc(memcount);
       strncpy(_topics[i], _topic_prefix, pl);
       strncpy(_topics[i]+pl, _espname, nl);
@@ -634,8 +766,6 @@ void ESPHomer::setup_MQTT() {
 
     i++;
   }
-
-
 
   client.setServer(_mqtt_server, _mqtt_port);
   client.setCallback([this] (char* topic, byte* payload, unsigned int length) { this->_callback(topic, payload, length); });
@@ -695,6 +825,12 @@ uint8_t ESPHomer::loop(boolean isCanReboot) {
       #ifdef SERIAL_DEBUG
       Serial.println("Connection Failed! Rebooting...");
       #endif
+      if (shutdownHandler) {
+        shutdownHandler(SHUTDOWN_REASON_CONN_FAIL);
+        yield();
+        delay(200);
+      }
+
       delay(1000);
       ESP.restart();
       yield();
@@ -711,10 +847,17 @@ uint8_t ESPHomer::loop(boolean isCanReboot) {
   // max 4294967.296 sec So - 3600296
   if (millis() > 4291367000 && isCanReboot) {
     loopState = 253; // RESET MILIS
+    if (shutdownHandler) {
+      shutdownHandler(SHUTDOWN_REASON_TIMER_OVERFLOW);
+      yield();
+      delay(200);
+    }
+
+    delay(500);
     ESP.restart();
-    ESP.reset();
-    delay(100);
     yield();
+    delay(500);
+    ESP.reset();
   }
 
   return loopState;
@@ -863,8 +1006,12 @@ void ESPHomer::serialln(const __FlashStringHelper* msg) {
 }
 
 void ESPHomer::StatusSend() {
+  StatusSend(false);
+}
+
+void ESPHomer::StatusSend(boolean isForceSend) {
   long now = millis();
-  if (now - last_stat_stamp > _statusPeriod) {
+  if (now - last_stat_stamp > _statusPeriod || isForceSend) {
       last_stat_stamp=now;
       unsigned long t = timeClient.getEpochTime();
       long rssi = WiFi.RSSI();
@@ -883,7 +1030,6 @@ void ESPHomer::StatusSend() {
       }
   }
 }
-
 
 void ESPHomer::_callback(char* topic, byte* payload, unsigned int length) {
   #ifdef SERIAL_DEBUG
@@ -967,6 +1113,80 @@ void ESPHomer::_callback(char* topic, byte* payload, unsigned int length) {
             client.publish(_topics[C_SCAN], msg.c_str()); // scan
         }
       }
+
+    } else if (strcmp(cmd, "stat") == 0) {
+      serialln("** Status Send **");
+      StatusSend(true);
+
+    } else if (strcmp(cmd, "conf") == 0) {
+      serialln("** Config Send **");
+
+      if (client.connected()) {
+        //time
+        uint32_t t = timeClient.getEpochTime();
+        //mac
+        //ip
+        //ESP_HOMER_VERSION
+        //appver
+        //_ssid
+        //EEPROMversion
+        //UPD
+        //_serial_speed
+        //WIFI_CONNECT_TIMEOUT_MS
+        //BATT_WARNING_VOLTAGE
+        //_VCC_ADJ VCC_ADJ
+        //_statusPeriod HOMER_STATUS_PERIOD_MS
+        //_ntp_server
+        //_mqtt_server
+        //_mqtt_port
+        //topic_count
+        //HOMER_MQTT_MAX_TOPIC_COUNT
+        //HOMER_MAX_CMD_SIZE
+        //HOMER_EMERGENCY_OTA_MS
+        //_pinLed
+        //_lvlLedOn
+                
+        //_topic_init
+        //_topic_prefix
+        //_topics []
+        
+
+        char msg[MQTT_MAX_PACKET_SIZE];
+        const char * init_format = PSTR(R"({"act":"config","time":%u,"mac":"%s","ip":"%s","h":"%s","v":"%s","ssid":"%s","epprom":%u,"upd":%u,"serial":%u,"wifi_timeout":%u,"batt_low":%.2f,"vccadj":%u,"stat_period":%u,"ntp_host":"%s","mqtt_host":"%s","mqtt_port":%u,"topic_count":%u,"max_topics":%u,"max_len_cmd":%u,"emerg_ota":%u,"led_pin":%u,"led_lvl_on":%u,"init_topic":"%s","topic_prefix":"%s"})");
+        snprintf_P(msg, sizeof(msg), init_format, t, getMAC(), WiFi.localIP().toString().c_str(), ESP_HOMER_VERSION, appver, _ssid, eeprom_data.format, eeprom_data.updateTime, _serial_speed, WIFI_CONNECT_TIMEOUT_MS, BATT_WARNING_VOLTAGE, _VCC_ADJ, _statusPeriod, _ntp_server, _mqtt_server, _mqtt_port, topic_count, HOMER_MQTT_MAX_TOPIC_COUNT, HOMER_MAX_CMD_SIZE, HOMER_EMERGENCY_OTA_MS, _pinLed, _lvlLedOn, _topic_init, _topic_prefix);
+        client.publish(_topics[C_CONF], msg); // conf
+        #ifdef SERIAL_DEBUG
+        Serial.println(msg);
+        #endif
+      }
+
+    } else if (strcmp(cmd, "topics") == 0) {
+      serialln("** Topics Send **");
+
+      if (client.connected()) {
+        char one_topic_name[30];
+        char topics_array[HOMER_MQTT_MAX_TOPIC_COUNT*(3+16)];  // avg len of one topic name is ~16
+        topics_array[0] = '\0';
+        uint8_t from_str = strlen(_topic_prefix)+strlen(_espname)+1;
+        for (uint8_t i = 0; i < topic_count; i++) {
+          uint8_t len = strlen(_topics[i])-from_str;
+          strncpy(one_topic_name, _topics[i]+from_str, len);
+          one_topic_name[len] = '\0';
+          strcat(topics_array, R"(")");
+          strcat(topics_array, one_topic_name);
+          strcat(topics_array, R"(",)");
+        }
+
+        topics_array[strlen(topics_array)-1] = '\0'; // delete latest colon
+
+        char msg[MQTT_MAX_PACKET_SIZE];
+        const char * init_format = PSTR(R"({"act":"topics","topics":[%s]})");
+        snprintf_P(msg, sizeof(msg), init_format, topics_array);
+        client.publish(_topics[C_TOPICS], msg); // topics
+        #ifdef SERIAL_DEBUG
+        Serial.println(msg);
+        #endif
+      }
     } else {
       if (commandHandler) {
         // Move data of cmd to buff
@@ -990,5 +1210,10 @@ ESPHomer& ESPHomer::setCallback(HOMER_CALLBACK_SIGNATURE) {
 
 ESPHomer& ESPHomer::onCommand(HOMER_COMMAND_SIGNATURE) {
     this->commandHandler = commandHandler;
+    return *this;
+}
+
+ESPHomer& ESPHomer::onShutdown(HOMER_SHUTDOWN_SIGNATURE) {
+    this->shutdownHandler = shutdownHandler;
     return *this;
 }
