@@ -3,7 +3,7 @@
 
 #include "Arduino.h"
 
-#define ESP_HOMER_VERSION "0.11"
+#define ESP_HOMER_VERSION "0.12"
 
 #include <ESP8266WiFi.h>
 
@@ -74,7 +74,9 @@ struct eeprom_data_t {
 #define HOMER_COMMAND_SIGNATURE void (*commandHandler)(char*, char*)
 #endif
 
+#ifndef SERIAL_DEBUG
 #define SERIAL_DEBUG
+#endif
 
 #ifndef WIFI_CONNECT_TIMEOUT_MS
 #define WIFI_CONNECT_TIMEOUT_MS 60000

@@ -524,35 +524,51 @@ void ESPHomer::setup_OTA() {
   time1 = millis();
   #endif
   // Port defaults to 8266
-  ArduinoOTA.setPort(18266);
+  ArduinoOTA.setPort(8266);
 
   // Hostname defaults to esp8266-[ChipID]
   ArduinoOTA.setHostname(_espname);
 
   // No authentication by default
   ArduinoOTA.setPassword(_ota_pass);
+/*
+  #ifdef SERIAL_DEBUG
+  Serial.print("OTA: [");
+  Serial.print(_ota_pass
+  );
+  Serial.println("]");
+  #endif
+*/
 
   ArduinoOTA.onStart([this]() {
     #ifdef SERIAL_DEBUG
-    Serial.println("Start OTA update");
+    Serial.print("[");
+    Serial.print(millis());
+    Serial.println("] Start OTA update");
     #endif
   });
   ArduinoOTA.onEnd([this]() {
     #ifdef SERIAL_DEBUG
-    Serial.println("\nEnd OTA update");
+    Serial.print("\n[");
+    Serial.print(millis());
+    Serial.println("] End OTA update");
     #endif
     //EPPROM set
     eeprom_data.updateTime = timeClient.getEpochTime();
     writeEEPROM(true);
+    // Dont delete this, this need for end all network job before reboot
+    delay(500);
   });
   ArduinoOTA.onProgress([this](unsigned int progress, unsigned int total) {
     #ifdef SERIAL_DEBUG
-    Serial.printf("OTA Progress: %u%%\r", (progress / (total / 100)));
+    Serial.printf("[%lu] OTA Progress: %u%%\r", millis(), (progress / (total / 100)));
     #endif
   });
   ArduinoOTA.onError([this](ota_error_t error) {
     #ifdef SERIAL_DEBUG
-    Serial.printf("OTA Error[%u]: ", error);
+    Serial.print("\n[");
+    Serial.print(millis());
+    Serial.printf("] OTA Error[%u]: ", error);
     if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
     else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
     else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
